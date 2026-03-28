@@ -1,64 +1,50 @@
-name: Build SDCC for Android ARM64
+name: Get Termux SDCC Binaries
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # এটি আমাদের ম্যানুয়ালি বিল্ড চালু করতে সাহায্য করবে
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest # গিটহাবের উবুন্টু কম্পিউটার ব্যবহার করব
+    runs-on: ubuntu-latest
 
     steps:
-    # ১. আমাদের প্রজেক্ট ক্লোন করবে
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    # ২. কম্পাইল করার জন্য প্রয়োজনীয় টুলস ইনস্টল করবে
-    - name: Install dependencies
+    - name: Fetch and Extract SDCC from Termux
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential bison flex libboost-all-dev texinfo gawk wget tar
+        mkdir sdcc-extract
+        cd sdcc-extract
+        
+        echo "Downloading Termux Packages Index..."
+        wget -q https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages
+        
+        echo "Finding SDCC package URL..."
+        SDCC_DEB=$(grep -A 15 "Package: sdcc" Packages | grep "Filename:" | head -n 1 | awk '{print $2}')
+        echo "Found SDCC URL: $SDCC_DEB"
+        
+        echo "Downloading SDCC Package..."
+        wget "https://packages.termux.dev/apt/termux-main/$SDCC_DEB" -O sdcc.deb
+        
+        echo "Extracting Package..."
+        ar x sdcc.deb
+        tar -xf data.tar.xz
+        
+        echo "Preparing Final Folder for App..."
+        mkdir -p FINAL_SDCC/bin
+        mkdir -p FINAL_SDCC/share
+        
+        # Copying only the Native Android Binaries we need
+        cp data/data/com.termux/files/usr/bin/sdcc FINAL_SDCC/bin/
+        cp data/data/com.termux/files/usr/bin/sdcpp FINAL_SDCC/bin/
+        cp data/data/com.termux/files/usr/bin/sdas8051 FINAL_SDCC/bin/
+        cp data/data/com.termux/files/usr/bin/sdld FINAL_SDCC/bin/
+        
+        # Copying Headers and Libraries
+        cp -r data/data/com.termux/files/usr/share/sdcc FINAL_SDCC/share/
 
-    # ৩. অ্যান্ড্রয়েড NDK (Native Development Kit) সেটআপ করবে
-    - name: Setup Android NDK
-      uses: nttld/setup-ndk@v1
+    - name: Upload Binaries for Download
+      uses: actions/upload-artifact@v4
       with:
-        ndk-version: r25c # এই ভার্সনটি স্টেবল
-
-    # ৪. SDCC এর অরিজিনাল সোর্স কোড ডাউনলোড করবে
-    - name: Download SDCC Source Code
-      run: |
-        wget https://sourceforge.net/projects/sdcc/files/sdcc/4.3.0/sdcc-src-4.3.0.tar.bz2
-        tar -xjf sdcc-src-4.3.0.tar.bz2
-
-    # ৫. NDK দিয়ে অ্যান্ড্রয়েডের জন্য কম্পাইল করবে (Cross-compile)
-    - name: Cross-Compile SDCC for Android
-      run: |
-        export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-        export TARGET=aarch64-linux-android
-        export API=24
-        
-        # NDK এর টুলসগুলোকে ডিফল্ট হিসেবে সেট করা হচ্ছে
-        export AR=$TOOLCHAIN/bin/llvm-ar
-        export CC=$TOOLCHAIN/bin/$TARGET$API-clang
-        export CXX=$TOOLCHAIN/bin/$TARGET$API-clang++
-        export LD=$TOOLCHAIN/bin/ld
-        export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-        export STRIP=$TOOLCHAIN/bin/llvm-strip
-        
-        cd sdcc-4.3.0
-        
-        # SDCC কে বলা হচ্ছে অ্যান্ড্রয়েড (aarch64) এর জন্য বিল্ড হতে
-        ./configure --host=$TARGET --disable-pic14-port --disable-pic16-port
-        
-        # শুধু 8051 (mcs51) পোর্টের জন্য মেক করা হচ্ছে
-        make PORT=mcs51
-
-    # ৬. তৈরি হওয়া ফাইলগুলো জিপ করে আমাদের দেবে
-    - name: Upload Built Binaries
-      uses: actions/upload-artifact@v3
-      with:
-        name: SDCC-Android-Binaries
-        path: sdcc-4.3.0/bin/
+        name: SDCC-Android-Ready
+        path: sdcc-extract/FINAL_SDCC/
         
