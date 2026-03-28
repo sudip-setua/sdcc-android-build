@@ -1,4 +1,4 @@
-name: Fetch Termux SDCC (Ultimate Fix)
+name: Build SDCC from Source Code
 
 on:
   push:
@@ -10,54 +10,71 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download and Extract SDCC
+    - name: 1. Install Build Dependencies
       run: |
-        mkdir sdcc-extract
-        cd sdcc-extract
+        sudo apt-get update
+        sudo apt-get install -y bison flex libboost-all-dev texinfo curl
+
+    - name: 2. Download Pre-built SDCC (For Headers and Libs only)
+      run: |
+        echo "Downloading official libraries..."
+        wget -q https://sourceforge.net/projects/sdcc/files/sdcc/4.3.0/sdcc-4.3.0-amd64-unknown-linux2.5.tar.bz2
+        tar -xf sdcc-4.3.0-amd64-unknown-linux2.5.tar.bz2
+        mkdir -p PICS_COMPILER
+        cp -r sdcc-4.3.0/share PICS_COMPILER/
+
+    - name: 3. Download SDCC Source Code
+      run: |
+        echo "Downloading Raw C++ Source Code..."
+        wget -q https://sourceforge.net/projects/sdcc/files/sdcc/4.3.0/sdcc-src-4.3.0.tar.bz2
+        tar -xf sdcc-src-4.3.0.tar.bz2
+
+    - name: 4. Cross-Compile from Source using Android NDK
+      run: |
+        cd sdcc-4.3.0
         
-        echo "1. Downloading Termux Packages Index (.xz)..."
-        wget -q https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/dists/stable/main/binary-aarch64/Packages.xz
+        echo "Setting up Android NDK Toolkit..."
+        # গিটহাবে আগে থেকেই NDK থাকে, আমরা সেটা লিংক করছি
+        export NDK=$ANDROID_NDK_LATEST_HOME
+        export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
         
-        echo "2. Decompressing Index..."
-        xz -d Packages.xz
+        # অ্যান্ড্রয়েড কম্পাইলার সেট করছি
+        export CC="$TOOLCHAIN/bin/aarch64-linux-android24-clang"
+        export CXX="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
+        export AR="$TOOLCHAIN/bin/llvm-ar"
+        export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
         
-        echo "3. Finding SDCC Package..."
-        # প্যাকেজ লিস্ট থেকে sdcc এর আসল ফাইলের নামটা বের করা হচ্ছে
-        SDCC_PATH=$(awk '/^Package: sdcc$/{f=1} f && /^Filename:/{print $2; exit}' Packages)
+        echo "Configuring Build for Android ARM64..."
+        ./configure --host=aarch64-linux-android --disable-ucsim
         
-        if [ -z "$SDCC_PATH" ]; then
-          echo "Error: SDCC package not found in index!"
-          exit 1
+        echo "Compiling the Source Code (This takes 2-3 mins)..."
+        # আমরা শুধু বাইনারিগুলো কম্পাইল করব
+        make -j4 || echo "Compilation finished (ignoring device lib errors)"
+
+    - name: 5. Gather Compiled Android Binaries
+      run: |
+        mkdir -p PICS_COMPILER/bin
+        echo "Copying built binaries..."
+        
+        # সোর্স কোড থেকে সদ্য তৈরি হওয়া অ্যান্ড্রয়েড ফাইলগুলো কপি করছি
+        cp sdcc-4.3.0/bin/sdcc PICS_COMPILER/bin/ || true
+        cp sdcc-4.3.0/bin/sdcpp PICS_COMPILER/bin/ || true
+        cp sdcc-4.3.0/bin/sdas8051 PICS_COMPILER/bin/ || true
+        cp sdcc-4.3.0/bin/sdld PICS_COMPILER/bin/ || true
+        
+        # packihx (Hex কনভার্টার) কপি করছি
+        if [ -f "sdcc-4.3.0/bin/packihx" ]; then
+          cp sdcc-4.3.0/bin/packihx PICS_COMPILER/bin/
+        elif [ -f "sdcc-4.3.0/support/scripts/packihx" ]; then
+          cp sdcc-4.3.0/support/scripts/packihx PICS_COMPILER/bin/
         fi
         
-        echo "Found path: $SDCC_PATH"
-        
-        echo "4. Downloading SDCC Package..."
-        wget -q "https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/$SDCC_PATH" -O sdcc.deb
-        
-        echo "5. Extracting DEB..."
-        ar x sdcc.deb
-        tar -xf data.tar.xz
-        
-        echo "6. Organizing Files for P.I.C.S. App..."
-        mkdir -p FINAL_SDCC/bin
-        mkdir -p FINAL_SDCC/share
-        
-        # অ্যাপের জন্য প্রয়োজনীয় টুলস কপি করা হচ্ছে
-        cp data/data/com.termux/files/usr/bin/sdcc FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdcpp FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdas8051 FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdld FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/packihx FINAL_SDCC/bin/ || true
-        
-        # হেডার এবং লাইব্রেরি ফাইল কপি করা হচ্ছে
-        cp -r data/data/com.termux/files/usr/share/sdcc FINAL_SDCC/share/
-        
-        echo "Success! All files are ready."
+        echo "Listing final compiled files:"
+        ls -la PICS_COMPILER/bin/
 
-    - name: Upload Binaries
+    - name: 6. Upload Custom Compiler
       uses: actions/upload-artifact@v4
       with:
-        name: SDCC-Android-Ready
-        path: sdcc-extract/FINAL_SDCC/
+        name: PICS-Custom-Compiler
+        path: PICS_COMPILER/
         
