@@ -1,0 +1,64 @@
+name: Build SDCC for Android ARM64
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # এটি আমাদের ম্যানুয়ালি বিল্ড চালু করতে সাহায্য করবে
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # গিটহাবের উবুন্টু কম্পিউটার ব্যবহার করব
+
+    steps:
+    # ১. আমাদের প্রজেক্ট ক্লোন করবে
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # ২. কম্পাইল করার জন্য প্রয়োজনীয় টুলস ইনস্টল করবে
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential bison flex libboost-all-dev texinfo gawk wget tar
+
+    # ৩. অ্যান্ড্রয়েড NDK (Native Development Kit) সেটআপ করবে
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25c # এই ভার্সনটি স্টেবল
+
+    # ৪. SDCC এর অরিজিনাল সোর্স কোড ডাউনলোড করবে
+    - name: Download SDCC Source Code
+      run: |
+        wget https://sourceforge.net/projects/sdcc/files/sdcc/4.3.0/sdcc-src-4.3.0.tar.bz2
+        tar -xjf sdcc-src-4.3.0.tar.bz2
+
+    # ৫. NDK দিয়ে অ্যান্ড্রয়েডের জন্য কম্পাইল করবে (Cross-compile)
+    - name: Cross-Compile SDCC for Android
+      run: |
+        export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+        export TARGET=aarch64-linux-android
+        export API=24
+        
+        # NDK এর টুলসগুলোকে ডিফল্ট হিসেবে সেট করা হচ্ছে
+        export AR=$TOOLCHAIN/bin/llvm-ar
+        export CC=$TOOLCHAIN/bin/$TARGET$API-clang
+        export CXX=$TOOLCHAIN/bin/$TARGET$API-clang++
+        export LD=$TOOLCHAIN/bin/ld
+        export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+        export STRIP=$TOOLCHAIN/bin/llvm-strip
+        
+        cd sdcc-4.3.0
+        
+        # SDCC কে বলা হচ্ছে অ্যান্ড্রয়েড (aarch64) এর জন্য বিল্ড হতে
+        ./configure --host=$TARGET --disable-pic14-port --disable-pic16-port
+        
+        # শুধু 8051 (mcs51) পোর্টের জন্য মেক করা হচ্ছে
+        make PORT=mcs51
+
+    # ৬. তৈরি হওয়া ফাইলগুলো জিপ করে আমাদের দেবে
+    - name: Upload Built Binaries
+      uses: actions/upload-artifact@v3
+      with:
+        name: SDCC-Android-Binaries
+        path: sdcc-4.3.0/bin/
+        
