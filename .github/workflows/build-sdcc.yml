@@ -1,4 +1,4 @@
-name: Get Termux SDCC Binaries
+name: Get Termux SDCC Binaries (Fixed)
 
 on:
   push:
@@ -10,39 +10,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Fetch and Extract SDCC from Termux
+    - name: Fetch SDCC from Tsinghua Mirror
       run: |
         mkdir sdcc-extract
         cd sdcc-extract
         
-        echo "Downloading Termux Packages Index..."
-        wget -q https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages
+        echo "1. Connecting to Secure Mirror..."
+        # HTML পেজ থেকে aarch64 (অ্যান্ড্রয়েড প্রসেসর) এর ফাইলটার নাম খুঁজবে
+        DEB_FILE=$(curl -sL https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/pool/main/s/sdcc/ | grep -oE 'sdcc_[0-9\.\-]+_aarch64\.deb' | tail -n 1)
         
-        echo "Finding SDCC package URL..."
-        SDCC_DEB=$(grep -A 15 "Package: sdcc" Packages | grep "Filename:" | head -n 1 | awk '{print $2}')
-        echo "Found SDCC URL: $SDCC_DEB"
+        if [ -z "$DEB_FILE" ]; then
+          echo "Error: Could not find the file!"
+          exit 1
+        fi
         
-        echo "Downloading SDCC Package..."
-        wget "https://packages.termux.dev/apt/termux-main/$SDCC_DEB" -O sdcc.deb
+        echo "2. Found File: $DEB_FILE. Downloading..."
+        curl -sL -o sdcc.deb "https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main/pool/main/s/sdcc/$DEB_FILE"
         
-        echo "Extracting Package..."
+        echo "3. Extracting the Package..."
         ar x sdcc.deb
         tar -xf data.tar.xz
         
-        echo "Preparing Final Folder for App..."
-        mkdir -p FINAL_SDCC/bin
+        echo "4. Organizing Files for P.I.C.S. App..."
         mkdir -p FINAL_SDCC/share
         
-        # Copying only the Native Android Binaries we need
-        cp data/data/com.termux/files/usr/bin/sdcc FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdcpp FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdas8051 FINAL_SDCC/bin/
-        cp data/data/com.termux/files/usr/bin/sdld FINAL_SDCC/bin/
+        # সমস্ত কম্পাইলার ফাইল (sdcc, sdcpp, sdas8051, packihx) কপি করা হচ্ছে
+        cp -r data/data/com.termux/files/usr/bin FINAL_SDCC/
         
-        # Copying Headers and Libraries
+        # সমস্ত হেডার (.h) এবং লাইব্রেরি কপি করা হচ্ছে
         cp -r data/data/com.termux/files/usr/share/sdcc FINAL_SDCC/share/
+        
+        echo "Done successfully!"
 
-    - name: Upload Binaries for Download
+    - name: Upload Ready Binaries
       uses: actions/upload-artifact@v4
       with:
         name: SDCC-Android-Ready
